@@ -1,0 +1,281 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Multi-user private personal dashboard (Z Vision).
+    // No parent /users/{userId} profile document is required; all data
+    // lives in user-scoped subcollections gated by verified email claim
+    // and matching Firebase Auth UID.
+    //
+    // 1. Subcollection: users/{userId}/dashboard
+    //    Allowed Document IDs: 'vision', 'countdowns', 'fitness', 'settings'
+    //
+    //    - Document ID: 'vision'
+    //      Required fields:
+    //        - title: string (<= 300 chars)
+    //        - subtitle: string (<= 500 chars)
+    //        - visionPeriod: string (<= 300 chars)
+    //        - endDate: string (<= 100 chars)
+    //        - businesses: list (<= 100 items)
+    //        - missions: list (<= 200 items)
+    //      Optional fields:
+    //        - startDate: string (<= 100 chars)
+    //        - totalTime: map (<= 10 keys)
+    //        - updatedAt: timestamp | int | float (>= 0)
+    //
+    //    - Document ID: 'countdowns'
+    //      Required fields:
+    //        - items: list (<= 100 items)
+    //      Optional fields:
+    //        - updatedAt: timestamp | int | float (>= 0)
+    //
+    //    - Document ID: 'fitness'
+    //      Required fields:
+    //        - targetDate: string (<= 100 chars)
+    //        - metrics: list (<= 100 items)
+    //      Optional fields:
+    //        - title: string (<= 200 chars)
+    //        - birthDate: string (<= 100 chars)
+    //        - updatedAt: timestamp | int | float (>= 0)
+    //
+    //    - Document ID: 'settings'
+    //      Required fields:
+    //        - appTitle: string (<= 100 chars)
+    //        - appLogoText: string (<= 32 chars)
+    //        - prayer: map (keys subset of: cityName, latitude, longitude,
+    //                       timezone, calculationMethod, madhab)
+    //      Optional fields:
+    //        - widgets: map (keys subset of: prayerTimes, fitness, journaling,
+    //                        calendar; each value bool)
+    //        - weekendHighlight: string ('friday' | 'sat-sun' | 'none')
+    //        - updatedAt: timestamp | int | float (>= 0)
+    //
+    // 2. Subcollection: users/{userId}/journal
+    //    Document ID: {entryId}
+    //    Required fields:
+    //      - content: string (1..20000 chars)
+    //      - createdAt: int | float (>= 0, immutable on update)
+    //    Optional fields:
+    //      - id: string (1..128 chars)
+    //      - updatedAt: int | float (>= 0)
+    //
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Multi-user workspace ownership: requires matching UID and verified email claim.
+    function isOwner(userId) {
+      return isAuthenticated() &&
+        request.auth.uid == userId &&
+        'email_verified' in request.auth.token &&
+        request.auth.token.email_verified == true;
+    }
+
+    function isNumeric(val) {
+      return val is int || val is float;
+    }
+
+    function hasRequiredFields(data, fields) {
+      return data is map && data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(data, fields) {
+      return data is map && data.keys().hasOnly(fields);
+    }
+
+    function isValidOptionalUpdatedAt(data) {
+      return !('updatedAt' in data) ||
+        data.updatedAt is timestamp ||
+        (isNumeric(data.updatedAt) && data.updatedAt >= 0);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidDashboardDocId(docId) {
+      return docId in ['vision', 'countdowns', 'fitness', 'settings'];
+    }
+
+    function isValidVisionDoc(data) {
+      return hasRequiredFields(data, [
+          'title',
+          'subtitle',
+          'visionPeriod',
+          'endDate',
+          'businesses',
+          'missions'
+        ]) &&
+        hasOnlyAllowedFields(data, [
+          'title',
+          'subtitle',
+          'visionPeriod',
+          'endDate',
+          'businesses',
+          'missions',
+          'startDate',
+          'totalTime',
+          'updatedAt'
+        ]) &&
+        data.title is string && data.title.size() <= 300 &&
+        data.subtitle is string && data.subtitle.size() <= 500 &&
+        data.visionPeriod is string && data.visionPeriod.size() <= 300 &&
+        data.endDate is string && data.endDate.size() <= 100 &&
+        data.businesses is list && data.businesses.size() <= 100 &&
+        data.missions is list && data.missions.size() <= 200 &&
+        (!('startDate' in data) || (data.startDate is string && data.startDate.size() <= 100)) &&
+        (!('totalTime' in data) || (data.totalTime is map && data.totalTime.keys().size() <= 10)) &&
+        isValidOptionalUpdatedAt(data);
+    }
+
+    function isValidCountdownsDoc(data) {
+      return hasRequiredFields(data, ['items']) &&
+        hasOnlyAllowedFields(data, ['items', 'updatedAt']) &&
+        data.items is list && data.items.size() <= 100 &&
+        isValidOptionalUpdatedAt(data);
+    }
+
+    function isValidFitnessDoc(data) {
+      return hasRequiredFields(data, ['targetDate', 'metrics']) &&
+        hasOnlyAllowedFields(data, [
+          'targetDate',
+          'metrics',
+          'title',
+          'birthDate',
+          'updatedAt'
+        ]) &&
+        data.targetDate is string && data.targetDate.size() <= 100 &&
+        data.metrics is list && data.metrics.size() <= 100 &&
+        (!('title' in data) || (data.title is string && data.title.size() <= 200)) &&
+        (!('birthDate' in data) || (data.birthDate is string && data.birthDate.size() <= 100)) &&
+        isValidOptionalUpdatedAt(data);
+    }
+
+    function isValidPrayerSettings(prayer) {
+      return prayer is map &&
+        prayer.keys().hasOnly([
+          'cityName',
+          'latitude',
+          'longitude',
+          'timezone',
+          'calculationMethod',
+          'madhab'
+        ]) &&
+        (!('cityName' in prayer) || (prayer.cityName is string && prayer.cityName.size() <= 100)) &&
+        (!('latitude' in prayer) || (isNumeric(prayer.latitude) && prayer.latitude >= -90 && prayer.latitude <= 90)) &&
+        (!('longitude' in prayer) || (isNumeric(prayer.longitude) && prayer.longitude >= -180 && prayer.longitude <= 180)) &&
+        (!('timezone' in prayer) || (prayer.timezone is string && prayer.timezone.size() <= 100)) &&
+        (!('calculationMethod' in prayer) || (
+          prayer.calculationMethod is string &&
+          prayer.calculationMethod in [
+            'Karachi',
+            'MuslimWorldLeague',
+            'NorthAmerica',
+            'UmmAlQura',
+            'Egyptian',
+            'Turkey',
+            'Singapore',
+            'Dubai',
+            'Qatar',
+            'Kuwait',
+            'MoonsightingCommittee',
+            'Tehran'
+          ]
+        )) &&
+        (!('madhab' in prayer) || prayer.madhab in ['Hanafi', 'Shafi']);
+    }
+
+    function isValidWidgets(widgets) {
+      return widgets is map &&
+        widgets.keys().hasOnly([
+          'prayerTimes',
+          'fitness',
+          'journaling',
+          'calendar'
+        ]) &&
+        (!('prayerTimes' in widgets) || widgets.prayerTimes is bool) &&
+        (!('fitness' in widgets) || widgets.fitness is bool) &&
+        (!('journaling' in widgets) || widgets.journaling is bool) &&
+        (!('calendar' in widgets) || widgets.calendar is bool);
+    }
+
+    function isValidSettingsDoc(data) {
+      return hasRequiredFields(data, ['appTitle', 'appLogoText', 'prayer']) &&
+        hasOnlyAllowedFields(data, [
+          'appTitle',
+          'appLogoText',
+          'prayer',
+          'widgets',
+          'weekendHighlight',
+          'updatedAt'
+        ]) &&
+        data.appTitle is string && data.appTitle.size() <= 100 &&
+        data.appLogoText is string && data.appLogoText.size() <= 32 &&
+        isValidPrayerSettings(data.prayer) &&
+        (!('widgets' in data) || isValidWidgets(data.widgets)) &&
+        (!('weekendHighlight' in data) || (
+          data.weekendHighlight is string &&
+          data.weekendHighlight in ['friday', 'sat-sun', 'none']
+        )) &&
+        isValidOptionalUpdatedAt(data);
+    }
+
+    function isValidDashboardDoc(docId, data) {
+      return data is map && (
+        (docId == 'vision' && isValidVisionDoc(data)) ||
+        (docId == 'countdowns' && isValidCountdownsDoc(data)) ||
+        (docId == 'fitness' && isValidFitnessDoc(data)) ||
+        (docId == 'settings' && isValidSettingsDoc(data))
+      );
+    }
+
+    function isValidJournalEntry(data) {
+      return data is map &&
+        hasRequiredFields(data, ['content', 'createdAt']) &&
+        hasOnlyAllowedFields(data, ['id', 'content', 'createdAt', 'updatedAt']) &&
+        data.content is string &&
+        data.content.size() > 0 &&
+        data.content.size() <= 20000 &&
+        isNumeric(data.createdAt) &&
+        data.createdAt >= 0 &&
+        (!('id' in data) || (data.id is string && data.id.size() > 0 && data.id.size() <= 128)) &&
+        (!('updatedAt' in data) || (isNumeric(data.updatedAt) && data.updatedAt >= 0));
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    // Default deny-all rule for any unmatched path
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // User-scoped dashboard configuration documents
+    match /users/{userId}/dashboard/{docId} {
+      allow read: if isOwner(userId) && isValidDashboardDocId(docId);
+      allow create, update: if isOwner(userId) &&
+        isValidDashboardDocId(docId) &&
+        isValidDashboardDoc(docId, request.resource.data);
+      allow delete: if isOwner(userId) && isValidDashboardDocId(docId);
+    }
+
+    // User-scoped private journal entries
+    match /users/{userId}/journal/{entryId} {
+      allow read, delete: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidJournalEntry(request.resource.data);
+      allow update: if isOwner(userId) &&
+        isValidJournalEntry(request.resource.data) &&
+        request.resource.data.createdAt == resource.data.createdAt;
+    }
+  }
+}
