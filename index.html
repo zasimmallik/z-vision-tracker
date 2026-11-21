@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en" class="dark">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#050507" />
+  <meta name="description" content="Personal vision tracker with live countdowns, multi-year mission roadmaps, fitness metrics, cloud-synced journaling, and global prayer times." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://z-vision-tracker.netlify.app/" />
+  <meta property="og:title" content="Z Vision — Personal Vision & Life Operating System" />
+  <meta property="og:description" content="Design and track your personal vision, mission roadmaps, fitness targets, daily journal, and global prayer times in one private cloud workspace." />
+  <meta property="twitter:card" content="summary_large_image" />
+  <meta property="twitter:title" content="Z Vision — Personal Vision & Life Operating System" />
+  <meta property="twitter:description" content="Multi-user personal vision, roadmap, fitness, journaling, and global prayer tracker." />
+  <link rel="icon" type="image/png" href="/assets/images/vision.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+    rel="stylesheet" />
+  <title>Z Vision</title>
+  <script>
+    try {
+      var savedTheme = localStorage.getItem('z_vision_app_theme') || sessionStorage.getItem('z_vision_app_theme');
+      if (savedTheme === 'light') {
+        document.documentElement.classList.remove('dark');
+      } else {
+        document.documentElement.classList.add('dark');
+      }
+    } catch (e) {}
+  </script>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
+</html>
