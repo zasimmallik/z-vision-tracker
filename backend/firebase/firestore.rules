@@ -13,7 +13,8 @@ service cloud.firestore {
     // and matching Firebase Auth UID.
     //
     // 1. Subcollection: users/{userId}/dashboard
-    //    Allowed Document IDs: 'vision', 'countdowns', 'fitness', 'settings'
+    //    Allowed Document IDs: 'vision', 'countdowns', 'fitness', 'settings',
+    //                          'ramadan', 'calories'
     //
     //    - Document ID: 'vision'
     //      Required fields:
@@ -50,9 +51,27 @@ service cloud.firestore {
     //        - prayer: map (keys subset of: cityName, latitude, longitude,
     //                       timezone, calculationMethod, madhab)
     //      Optional fields:
-    //        - widgets: map (keys subset of: prayerTimes, fitness, journaling,
-    //                        calendar; each value bool)
+    //        - widgets: map (keys subset of: prayerTimes, ramadan, fitness,
+    //                        calories, journaling, calendar; each value bool)
     //        - weekendHighlight: string ('friday' | 'sat-sun' | 'none')
+    //        - layout: map (keys subset of: primary, secondary; each list <= 15 items)
+    //        - updatedAt: timestamp | int | float (>= 0)
+    //
+    //    - Document ID: 'ramadan'
+    //      Required fields:
+    //        - hijriYear: int (1400..1600)
+    //        - hijriOffset: int (-2..2)
+    //        - fastedDays: map (<= 400 entries)
+    //      Optional fields:
+    //        - updatedAt: timestamp | int | float (>= 0)
+    //
+    //    - Document ID: 'calories'
+    //      Required fields:
+    //        - goals: map (required keys: dailyCalories (numeric 500..15000),
+    //                      proteinGrams (numeric >= 0), carbsGrams (numeric >= 0),
+    //                      fatGrams (numeric >= 0))
+    //        - presets: list (<= 100 items)
+    //      Optional fields:
     //        - updatedAt: timestamp | int | float (>= 0)
     //
     // 2. Subcollection: users/{userId}/journal
@@ -63,6 +82,14 @@ service cloud.firestore {
     //    Optional fields:
     //      - id: string (1..128 chars)
     //      - updatedAt: int | float (>= 0)
+    //
+    // 3. Subcollection: users/{userId}/calorieLogs
+    //    Document ID: {dateKey} (matches ^\d{4}-\d{2}-\d{2}$)
+    //    Required fields:
+    //      - date: string (must equal dateKey)
+    //      - entries: list (<= 200 items)
+    //    Optional fields:
+    //      - updatedAt: timestamp | int | float (>= 0)
     //
     // ===============================================================
     // Helper Functions
@@ -103,7 +130,14 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidDashboardDocId(docId) {
-      return docId in ['vision', 'countdowns', 'fitness', 'settings'];
+      return docId in [
+        'vision',
+        'countdowns',
+        'fitness',
+        'settings',
+        'ramadan',
+        'calories'
+      ];
     }
 
     function isValidVisionDoc(data) {
@@ -198,14 +232,25 @@ service cloud.firestore {
       return widgets is map &&
         widgets.keys().hasOnly([
           'prayerTimes',
+          'ramadan',
           'fitness',
+          'calories',
           'journaling',
           'calendar'
         ]) &&
         (!('prayerTimes' in widgets) || widgets.prayerTimes is bool) &&
+        (!('ramadan' in widgets) || widgets.ramadan is bool) &&
         (!('fitness' in widgets) || widgets.fitness is bool) &&
+        (!('calories' in widgets) || widgets.calories is bool) &&
         (!('journaling' in widgets) || widgets.journaling is bool) &&
         (!('calendar' in widgets) || widgets.calendar is bool);
+    }
+
+    function isValidDashboardLayout(layout) {
+      return layout is map &&
+        layout.keys().hasOnly(['primary', 'secondary']) &&
+        (!('primary' in layout) || (layout.primary is list && layout.primary.size() <= 15)) &&
+        (!('secondary' in layout) || (layout.secondary is list && layout.secondary.size() <= 15));
     }
 
     function isValidSettingsDoc(data) {
@@ -216,6 +261,7 @@ service cloud.firestore {
           'prayer',
           'widgets',
           'weekendHighlight',
+          'layout',
           'updatedAt'
         ]) &&
         data.appTitle is string && data.appTitle.size() <= 100 &&
@@ -226,6 +272,54 @@ service cloud.firestore {
           data.weekendHighlight is string &&
           data.weekendHighlight in ['friday', 'sat-sun', 'none']
         )) &&
+        (!('layout' in data) || isValidDashboardLayout(data.layout)) &&
+        isValidOptionalUpdatedAt(data);
+    }
+
+    function isValidRamadanDoc(data) {
+      return hasRequiredFields(data, ['hijriYear', 'hijriOffset', 'fastedDays']) &&
+        hasOnlyAllowedFields(data, ['hijriYear', 'hijriOffset', 'fastedDays', 'updatedAt']) &&
+        data.hijriYear is int &&
+        data.hijriYear >= 1400 &&
+        data.hijriYear <= 1600 &&
+        data.hijriOffset is int &&
+        data.hijriOffset >= -2 &&
+        data.hijriOffset <= 2 &&
+        data.fastedDays is map &&
+        data.fastedDays.size() <= 400 &&
+        isValidOptionalUpdatedAt(data);
+    }
+
+    function isValidCalorieGoals(goals) {
+      return hasRequiredFields(goals, [
+          'dailyCalories',
+          'proteinGrams',
+          'carbsGrams',
+          'fatGrams'
+        ]) &&
+        hasOnlyAllowedFields(goals, [
+          'dailyCalories',
+          'proteinGrams',
+          'carbsGrams',
+          'fatGrams'
+        ]) &&
+        isNumeric(goals.dailyCalories) &&
+        goals.dailyCalories >= 500 &&
+        goals.dailyCalories <= 15000 &&
+        isNumeric(goals.proteinGrams) &&
+        goals.proteinGrams >= 0 &&
+        isNumeric(goals.carbsGrams) &&
+        goals.carbsGrams >= 0 &&
+        isNumeric(goals.fatGrams) &&
+        goals.fatGrams >= 0;
+    }
+
+    function isValidCaloriesDoc(data) {
+      return hasRequiredFields(data, ['goals', 'presets']) &&
+        hasOnlyAllowedFields(data, ['goals', 'presets', 'updatedAt']) &&
+        isValidCalorieGoals(data.goals) &&
+        data.presets is list &&
+        data.presets.size() <= 100 &&
         isValidOptionalUpdatedAt(data);
     }
 
@@ -234,8 +328,20 @@ service cloud.firestore {
         (docId == 'vision' && isValidVisionDoc(data)) ||
         (docId == 'countdowns' && isValidCountdownsDoc(data)) ||
         (docId == 'fitness' && isValidFitnessDoc(data)) ||
-        (docId == 'settings' && isValidSettingsDoc(data))
+        (docId == 'settings' && isValidSettingsDoc(data)) ||
+        (docId == 'ramadan' && isValidRamadanDoc(data)) ||
+        (docId == 'calories' && isValidCaloriesDoc(data))
       );
+    }
+
+    function isValidCalorieLogDoc(data, dateKey) {
+      return hasRequiredFields(data, ['date', 'entries']) &&
+        hasOnlyAllowedFields(data, ['date', 'entries', 'updatedAt']) &&
+        data.date is string &&
+        data.date == dateKey &&
+        data.entries is list &&
+        data.entries.size() <= 200 &&
+        isValidOptionalUpdatedAt(data);
     }
 
     function isValidJournalEntry(data) {
@@ -276,6 +382,14 @@ service cloud.firestore {
       allow update: if isOwner(userId) &&
         isValidJournalEntry(request.resource.data) &&
         request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    // User-scoped daily calorie logs
+    match /users/{userId}/calorieLogs/{dateKey} {
+      allow read, delete: if isOwner(userId);
+      allow create, update: if isOwner(userId) &&
+        dateKey.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+        isValidCalorieLogDoc(request.resource.data, dateKey);
     }
   }
 }
