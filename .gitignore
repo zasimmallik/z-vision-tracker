@@ -29,6 +29,11 @@ vite.config.d.ts
 **/.firebaserc
 .netlify/
 
+# Local agent & secret configuration
+AGENTS.md
+CLAUDE.md
+WARP.md
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
