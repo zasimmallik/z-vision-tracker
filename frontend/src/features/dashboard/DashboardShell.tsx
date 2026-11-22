@@ -43,6 +43,7 @@ import {
   ActivityIcon,
   AlertCircleIcon,
   CheckIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   ClockIcon,
@@ -157,6 +158,7 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
   const [initialStartDate] = useState<string>(() => new Date().toISOString());
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [missionsFolded, setMissionsFolded] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -513,17 +515,43 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
       case 'missions':
         return (
           <section className="surface-card p-4 sm:p-6">
-            <h2 className="section-heading mb-4 sm:mb-5">
-              <LayersIcon />
-              <span>Missions &amp; milestones</span>
-            </h2>
-            <div className="scrollbar-hide lg:max-h-[42rem] lg:overflow-y-auto lg:pr-1">
-              <VisionAllMissions
-                isDark={isDarkMode}
-                onToggleTheme={onToggleTheme}
-                showInlineToggle={false}
-              />
+            <div
+              className={`flex items-center justify-between gap-2 ${
+                missionsFolded ? '' : 'mb-4 sm:mb-5'
+              }`}
+            >
+              <h2 className="section-heading">
+                <LayersIcon />
+                <span>Missions &amp; milestones</span>
+              </h2>
+              <button
+                type="button"
+                onClick={() => setMissionsFolded((prev) => !prev)}
+                aria-expanded={!missionsFolded}
+                aria-label={
+                  missionsFolded
+                    ? 'Expand Missions & milestones'
+                    : 'Collapse Missions & milestones'
+                }
+                title={missionsFolded ? 'Expand card' : 'Fold card'}
+                className="btn-icon w-8 h-8"
+              >
+                <ChevronDownIcon
+                  className={`w-4 h-4 transition-transform duration-200 ${
+                    missionsFolded ? '-rotate-90' : 'rotate-0'
+                  }`}
+                />
+              </button>
             </div>
+            {!missionsFolded && (
+              <div className="scrollbar-hide max-h-[32rem] sm:max-h-[38rem] lg:max-h-[42rem] overflow-y-auto overscroll-contain pr-0.5 lg:pr-1">
+                <VisionAllMissions
+                  isDark={isDarkMode}
+                  onToggleTheme={onToggleTheme}
+                  showInlineToggle={false}
+                />
+              </div>
+            )}
           </section>
         );
       case 'fitness':
