@@ -164,6 +164,7 @@ export const dashboardWidgetsSchema: z.ZodType<DashboardWidgets> = z.object({
 export const dashboardLayoutSchema: z.ZodType<DashboardLayout> = z.object({
   primary: z.array(dashboardCardIdSchema).max(15),
   secondary: z.array(dashboardCardIdSchema).max(15),
+  mobile: z.array(dashboardCardIdSchema).max(15).optional(),
 });
 
 export const weekendHighlightSchema = z.enum(['friday', 'sat-sun', 'none']);

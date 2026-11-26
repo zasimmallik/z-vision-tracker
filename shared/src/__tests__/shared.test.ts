@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_DASHBOARD_LAYOUT,
+  DEFAULT_MOBILE_ORDER,
   DEFAULT_WIDGETS_NEW_USER,
   calculateTimeRemaining,
   generateRamadanSchedule,
@@ -9,6 +10,7 @@ import {
   summarizeCalorieLog,
   validateBackupPayload,
 } from '../index.js';
+import type { DashboardCardId } from '../index.js';
 
 describe('@z-vision/shared', () => {
   it('validates and migrates v1 backup payload safely', () => {
@@ -93,6 +95,145 @@ describe('@z-vision/shared', () => {
     expect(combined).not.toContain('calories');
     expect(combined).toContain('ramadan');
     expect(reconciled.primary[0]).toBe('missions');
+  });
+
+  it('builds default mobile order with countdowns right after clock and prayerTimes', () => {
+    const allEnabled = {
+      ...DEFAULT_WIDGETS_NEW_USER,
+      ramadan: true,
+      calories: true,
+    };
+    const reconciled = reconcileLayout(undefined, allEnabled);
+    expect(reconciled.mobile).toEqual(DEFAULT_MOBILE_ORDER);
+    expect(reconciled.mobile.indexOf('clock')).toBe(0);
+    expect(reconciled.mobile.indexOf('prayerTimes')).toBe(1);
+    expect(reconciled.mobile.indexOf('countdowns')).toBe(2);
+    expect(reconciled.mobile.indexOf('calendar')).toBe(3);
+    expect(reconciled.mobile.indexOf('missions')).toBe(4);
+
+    // Existing saved layout without mobile field falls back to DEFAULT_MOBILE_ORDER
+    const legacy = reconcileLayout(
+      {
+        primary: DEFAULT_DASHBOARD_LAYOUT.primary,
+        secondary: DEFAULT_DASHBOARD_LAYOUT.secondary,
+      },
+      allEnabled
+    );
+    expect(legacy.mobile).toEqual(DEFAULT_MOBILE_ORDER);
+  });
+
+  it('preserves custom layout.mobile ordering verbatim across any indices', () => {
+    const allEnabled = {
+      ...DEFAULT_WIDGETS_NEW_USER,
+      ramadan: true,
+      calories: true,
+    };
+    const customMobile: DashboardCardId[] = [
+      'calories',
+      'countdowns',
+      'fitness',
+      'clock',
+      'ramadan',
+      'missions',
+      'journaling',
+      'prayerTimes',
+      'calendar',
+    ];
+    const reconciled = reconcileLayout(
+      {
+        primary: DEFAULT_DASHBOARD_LAYOUT.primary,
+        secondary: DEFAULT_DASHBOARD_LAYOUT.secondary,
+        mobile: customMobile,
+      },
+      allEnabled
+    );
+    expect(reconciled.mobile).toEqual(customMobile);
+  });
+
+  it('excludes disabled widgets and appends newly enabled widgets in mobile layout', () => {
+    const widgets = {
+      ...DEFAULT_WIDGETS_NEW_USER,
+      ramadan: true,
+      calories: false,
+      journaling: false,
+    };
+    const customMobile: DashboardCardId[] = [
+      'fitness',
+      'calories', // disabled
+      'clock',
+      'clock', // duplicate
+      'countdowns',
+    ];
+    const reconciled = reconcileLayout({ mobile: customMobile }, widgets);
+    expect(reconciled.mobile).toEqual([
+      'fitness',
+      'clock',
+      'countdowns',
+      'prayerTimes',
+      'calendar',
+      'missions',
+      'ramadan',
+    ]);
+    expect(reconciled.mobile).not.toContain('calories');
+    expect(reconciled.mobile).not.toContain('journaling');
+  });
+
+  it('preserves layout.mobile through validateBackupPayload', () => {
+    const customMobile: DashboardCardId[] = [
+      'countdowns',
+      'clock',
+      'fitness',
+      'prayerTimes',
+      'calendar',
+      'missions',
+      'journaling',
+    ];
+    const raw = {
+      version: 2,
+      exportedAt: '2026-01-01T00:00:00.000Z',
+      vision: {
+        title: '5 Year Plan',
+        subtitle: 'Focus',
+        visionPeriod: '2026-2031',
+        endDate: '2031-12-31T23:59:59',
+        businesses: ['Craft'],
+        missions: [],
+      },
+      countdowns: [],
+      fitness: {
+        targetDate: '2027-12-31T23:59:59',
+        metrics: [],
+      },
+      settings: {
+        appTitle: 'My Vision',
+        appLogoText: 'MV',
+        prayer: {
+          cityName: 'London',
+          latitude: 51.5074,
+          longitude: -0.1278,
+          timezone: 'Europe/London',
+          calculationMethod: 'MuslimWorldLeague',
+          madhab: 'Shafi',
+        },
+        widgets: {
+          prayerTimes: true,
+          ramadan: false,
+          fitness: true,
+          calories: false,
+          journaling: true,
+          calendar: true,
+        },
+        layout: {
+          primary: ['clock', 'prayerTimes', 'calendar', 'missions', 'journaling'],
+          secondary: ['countdowns', 'fitness'],
+          mobile: customMobile,
+        },
+      },
+      journal: [],
+    };
+
+    const parsed = validateBackupPayload(raw);
+    expect(parsed.settings.layout?.mobile).toEqual(customMobile);
   });
 
   it('generates 30-day Ramadan schedule and respects hijriOffset', () => {

@@ -313,6 +313,43 @@ html.dark {
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+
+  /* Drag-and-drop polish utilities (preserves Stealth Obsidian & Architectural Stone glass) */
+  .dnd-drop-placeholder {
+    border-radius: 16px;
+    border: 1.5px dashed var(--accent-border);
+    background: var(--accent-soft);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    transition: opacity 180ms var(--ease-out), border-color 180ms var(--ease-out), background-color 180ms var(--ease-out);
+  }
+
+  .dnd-overlay-card {
+    background: var(--bg-card-glass);
+    border: 1px solid var(--accent-border);
+    border-radius: 16px;
+    -webkit-backdrop-filter: blur(22px) saturate(155%);
+    backdrop-filter: blur(22px) saturate(155%);
+    box-shadow:
+      0 0 0 1px var(--accent-border),
+      var(--shadow-card);
+    transform: scale(1.02);
+    cursor: grabbing;
+  }
+
+  .dnd-column-dropzone {
+    border-radius: 18px;
+    transition: background-color 180ms var(--ease-out), box-shadow 180ms var(--ease-out);
+  }
+
+  .dnd-column-dropzone-active {
+    background-color: var(--accent-soft);
+    box-shadow: inset 0 0 0 1.5px var(--accent-border);
+  }
+
+  .dnd-column-dropzone-empty {
+    box-shadow: inset 0 0 0 1px var(--border-hairline);
+  }
 }
 
 :focus-visible {

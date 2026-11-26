@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { AuthProvider } from '../app/providers/AuthContext';
 import { VisionDataProvider } from '../app/providers/VisionDataContext';
 import App from '../app/App';
+import DashboardShell from '../features/dashboard/DashboardShell';
 import { Modal } from '../shared/components/Modal';
 import Journaling from '../features/journaling/Journaling';
 import RamadanCalendarCard from '../features/ramadan/RamadanCalendarCard';
@@ -146,5 +147,122 @@ describe('Frontend Features & Bug Fixes', () => {
     await waitFor(() => {
       expect(screen.getByText('Personalize your workspace')).toBeInTheDocument();
     });
+  });
+
+  it('orders countdowns right below clock and prayerTimes on mobile, before calendar and missions', () => {
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: (query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    });
+
+    try {
+      const { container } = renderWithDemo(
+        <DashboardShell isDarkMode={true} onToggleTheme={() => {}} />
+      );
+
+      const renderedOrder = Array.from(
+        container.querySelectorAll<HTMLElement>('[data-card-id]')
+      ).map((el) => el.getAttribute('data-card-id'));
+
+      expect(renderedOrder.indexOf('clock')).toBe(0);
+      expect(renderedOrder.indexOf('prayerTimes')).toBe(1);
+      expect(renderedOrder.indexOf('countdowns')).toBe(2);
+      expect(renderedOrder.indexOf('calendar')).toBeGreaterThan(
+        renderedOrder.indexOf('countdowns')
+      );
+      expect(renderedOrder.indexOf('missions')).toBeGreaterThan(
+        renderedOrder.indexOf('calendar')
+      );
+    } finally {
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        value: originalMatchMedia,
+      });
+    }
+  });
+
+  it('allows freely moving any card across the old primary/secondary boundary on mobile without snapping back', async () => {
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: (query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    });
+
+    try {
+      const user = userEvent.setup();
+      const { container } = renderWithDemo(
+        <DashboardShell isDarkMode={true} onToggleTheme={() => {}} />
+      );
+
+      const getCardOrder = () =>
+        Array.from(container.querySelectorAll<HTMLElement>('[data-card-id]')).map(
+          (el) => el.getAttribute('data-card-id')
+        );
+
+      // Enter Edit Mode
+      await user.click(screen.getByRole('button', { name: /^Edit$/i }));
+
+      // Initial mobile order starts with: clock, prayerTimes, countdowns, calendar, missions...
+      expect(getCardOrder().slice(0, 5)).toEqual([
+        'clock',
+        'prayerTimes',
+        'countdowns',
+        'calendar',
+        'missions',
+      ]);
+
+      // Move countdowns (formerly secondary) above prayerTimes (formerly primary)
+      await user.click(screen.getByRole('button', { name: 'Move Countdowns up' }));
+      expect(getCardOrder().slice(0, 5)).toEqual([
+        'clock',
+        'countdowns',
+        'prayerTimes',
+        'calendar',
+        'missions',
+      ]);
+
+      // Move calendar above prayerTimes and then above countdowns
+      await user.click(screen.getByRole('button', { name: 'Move Calendar up' }));
+      expect(getCardOrder().slice(0, 5)).toEqual([
+        'clock',
+        'countdowns',
+        'calendar',
+        'prayerTimes',
+        'missions',
+      ]);
+
+      await user.click(screen.getByRole('button', { name: 'Move Calendar up' }));
+      expect(getCardOrder().slice(0, 5)).toEqual([
+        'clock',
+        'calendar',
+        'countdowns',
+        'prayerTimes',
+        'missions',
+      ]);
+    } finally {
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        value: originalMatchMedia,
+      });
+    }
   });
 });

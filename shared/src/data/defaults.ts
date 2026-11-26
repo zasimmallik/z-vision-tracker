@@ -31,9 +31,22 @@ export const DEFAULT_WIDGETS_NEW_USER: DashboardWidgets = {
   calendar: true,
 };
 
+export const DEFAULT_MOBILE_ORDER: DashboardCardId[] = [
+  'clock',
+  'prayerTimes',
+  'countdowns',
+  'calendar',
+  'missions',
+  'fitness',
+  'journaling',
+  'ramadan',
+  'calories',
+];
+
 export const DEFAULT_DASHBOARD_LAYOUT: DashboardLayout = {
   primary: ['clock', 'prayerTimes', 'calendar', 'missions', 'journaling', 'ramadan'],
   secondary: ['countdowns', 'fitness', 'calories'],
+  mobile: [...DEFAULT_MOBILE_ORDER],
 };
 
 const ALL_CARD_IDS: DashboardCardId[] = [
@@ -76,7 +89,7 @@ export const isCardEnabled = (
 export const reconcileLayout = (
   layout: Partial<DashboardLayout> | undefined,
   widgets: DashboardWidgets = DEFAULT_WIDGETS_EXISTING
-): DashboardLayout => {
+): Required<DashboardLayout> => {
   const seen = new Set<DashboardCardId>();
   const primary: DashboardCardId[] = [];
   const secondary: DashboardCardId[] = [];
@@ -111,7 +124,27 @@ export const reconcileLayout = (
     }
   }
 
-  return { primary, secondary };
+  const mobileSeen = new Set<DashboardCardId>();
+  const mobile: DashboardCardId[] = [];
+
+  if (Array.isArray(layout?.mobile) && layout.mobile.length > 0) {
+    for (const raw of layout.mobile) {
+      if (typeof raw !== 'string' || !validIdSet.has(raw)) continue;
+      const id = raw as DashboardCardId;
+      if (mobileSeen.has(id) || !isCardEnabled(id, widgets)) continue;
+      mobileSeen.add(id);
+      mobile.push(id);
+    }
+  }
+
+  for (const id of DEFAULT_MOBILE_ORDER) {
+    if (!mobileSeen.has(id) && isCardEnabled(id, widgets)) {
+      mobileSeen.add(id);
+      mobile.push(id);
+    }
+  }
+
+  return { primary, secondary, mobile };
 };
 
 export const detectBrowserTimezone = (): string => {

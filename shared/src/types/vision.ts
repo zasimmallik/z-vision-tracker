@@ -139,6 +139,7 @@ export interface DashboardWidgets {
 export interface DashboardLayout {
   primary: DashboardCardId[];
   secondary: DashboardCardId[];
+  mobile?: DashboardCardId[];
 }
 
 export interface AppSettings {

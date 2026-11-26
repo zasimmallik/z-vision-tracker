@@ -54,7 +54,7 @@ service cloud.firestore {
     //        - widgets: map (keys subset of: prayerTimes, ramadan, fitness,
     //                        calories, journaling, calendar; each value bool)
     //        - weekendHighlight: string ('friday' | 'sat-sun' | 'none')
-    //        - layout: map (keys subset of: primary, secondary; each list <= 15 items)
+    //        - layout: map (keys subset of: primary, secondary, mobile; each list <= 15 items)
     //        - updatedAt: timestamp | int | float (>= 0)
     //
     //    - Document ID: 'ramadan'
@@ -248,9 +248,10 @@ service cloud.firestore {
 
     function isValidDashboardLayout(layout) {
       return layout is map &&
-        layout.keys().hasOnly(['primary', 'secondary']) &&
+        layout.keys().hasOnly(['primary', 'secondary', 'mobile']) &&
         (!('primary' in layout) || (layout.primary is list && layout.primary.size() <= 15)) &&
-        (!('secondary' in layout) || (layout.secondary is list && layout.secondary.size() <= 15));
+        (!('secondary' in layout) || (layout.secondary is list && layout.secondary.size() <= 15)) &&
+        (!('mobile' in layout) || (layout.mobile is list && layout.mobile.size() <= 15));
     }
 
     function isValidSettingsDoc(data) {

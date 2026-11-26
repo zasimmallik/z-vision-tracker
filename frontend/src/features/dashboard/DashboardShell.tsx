@@ -1,25 +1,41 @@
-import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   DndContext,
   DragOverlay,
   KeyboardSensor,
+  MeasuringStrategy,
   PointerSensor,
   TouchSensor,
   closestCorners,
+  defaultDropAnimationSideEffects,
+  pointerWithin,
+  rectIntersection,
   useDroppable,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
+  type DropAnimation,
 } from '@dnd-kit/core';
 import {
   SortableContext,
   arrayMove,
   rectSortingStrategy,
   sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import {
+  DEFAULT_MOBILE_ORDER,
   DEFAULT_WIDGETS_EXISTING,
   reconcileLayout,
   type CountdownMilestone,
@@ -42,18 +58,24 @@ import { SortableDashboardCard } from './SortableDashboardCard';
 import {
   ActivityIcon,
   AlertCircleIcon,
+  CalendarIcon,
   CheckIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   ClockIcon,
+  CompassIcon,
   EditIcon,
+  FlameIcon,
+  GripVerticalIcon,
   LayersIcon,
   LogOutIcon,
+  MoonStarIcon,
   PenLineIcon,
   PlusIcon,
   RotateCcwIcon,
   SettingsIcon,
+  TargetIcon,
 } from '../../shared/components/Icons';
 
 const SettingsModal = lazy(() => import('../settings/SettingsModal'));
@@ -83,28 +105,39 @@ const CARD_LABELS: Record<DashboardCardId, string> = {
   journaling: 'Journaling',
 };
 
-const BOTTOM_PREFERENCE_CARDS = new Set<DashboardCardId>(['ramadan', 'calories']);
-
-const splitTrailingBottomCards = (list: DashboardCardId[]) => {
-  let splitIdx = list.length;
-  while (splitIdx > 0 && BOTTOM_PREFERENCE_CARDS.has(list[splitIdx - 1])) {
-    splitIdx--;
+const renderCardIcon = (cardId: DashboardCardId): React.ReactNode => {
+  switch (cardId) {
+    case 'clock':
+      return <ClockIcon className="w-4 h-4" />;
+    case 'prayerTimes':
+      return <CompassIcon className="w-4 h-4" />;
+    case 'ramadan':
+      return <MoonStarIcon className="w-4 h-4" />;
+    case 'calendar':
+      return <CalendarIcon className="w-4 h-4" />;
+    case 'countdowns':
+      return <TargetIcon className="w-4 h-4" />;
+    case 'missions':
+      return <LayersIcon className="w-4 h-4" />;
+    case 'fitness':
+      return <ActivityIcon className="w-4 h-4" />;
+    case 'calories':
+      return <FlameIcon className="w-4 h-4" />;
+    case 'journaling':
+      return <PenLineIcon className="w-4 h-4" />;
   }
-  return {
-    main: list.slice(0, splitIdx),
-    trailing: list.slice(splitIdx),
-  };
 };
 
-const buildMobileFlatCards = (layout: DashboardLayout): DashboardCardId[] => {
-  const primaryParts = splitTrailingBottomCards(layout.primary);
-  const secondaryParts = splitTrailingBottomCards(layout.secondary);
-  return [
-    ...primaryParts.main,
-    ...secondaryParts.main,
-    ...primaryParts.trailing,
-    ...secondaryParts.trailing,
-  ];
+const dropAnimation: DropAnimation = {
+  duration: 240,
+  easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+  sideEffects: defaultDropAnimationSideEffects({
+    styles: {
+      active: {
+        opacity: '0.35',
+      },
+    },
+  }),
 };
 
 const isClockPrayerPair = (a: DashboardCardId, b: DashboardCardId): boolean =>
@@ -121,13 +154,30 @@ const getInitials = (name?: string | null, email?: string | null): string => {
 
 const DroppableColumn: React.FC<{
   id: 'primary' | 'secondary';
+  label: string;
+  isDraggingActive: boolean;
+  isEmpty: boolean;
   className: string;
   children: React.ReactNode;
-}> = ({ id, className, children }) => {
-  const { setNodeRef } = useDroppable({ id });
+}> = ({ id, label, isDraggingActive, isEmpty, className, children }) => {
+  const { setNodeRef, isOver } = useDroppable({ id });
   return (
-    <div ref={setNodeRef} className={className}>
+    <div
+      ref={setNodeRef}
+      className={`${className} dnd-column-dropzone ${
+        isOver && isDraggingActive
+          ? 'dnd-column-dropzone-active'
+          : isDraggingActive && isEmpty
+            ? 'dnd-column-dropzone-empty'
+            : ''
+      }`}
+    >
       {children}
+      {isEmpty && isDraggingActive && (
+        <div className="dnd-drop-placeholder min-h-[120px] flex items-center justify-center p-6 text-xs font-mono text-[var(--accent)]">
+          Drop card into {label}
+        </div>
+      )}
     </div>
   );
 };
@@ -190,10 +240,39 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
   const weekendHighlight = settings.weekendHighlight ?? 'friday';
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
+
+  const measuringConfig = useMemo(
+    () => ({
+      droppable: {
+        strategy: MeasuringStrategy.Always,
+      },
+    }),
+    []
+  );
+
+  const collisionDetection: CollisionDetection = useCallback((args) => {
+    const pointerCollisions = pointerWithin(args);
+    if (pointerCollisions.length > 0) {
+      const cardCollisions = pointerCollisions.filter(
+        (c) => c.id !== 'primary' && c.id !== 'secondary'
+      );
+      return cardCollisions.length > 0 ? cardCollisions : pointerCollisions;
+    }
+
+    const rectCollisions = rectIntersection(args);
+    if (rectCollisions.length > 0) {
+      const cardCollisions = rectCollisions.filter(
+        (c) => c.id !== 'primary' && c.id !== 'secondary'
+      );
+      return cardCollisions.length > 0 ? cardCollisions : rectCollisions;
+    }
+
+    return closestCorners(args);
+  }, []);
 
   useEffect(() => {
     document.title = settings.appTitle || 'Z Vision';
@@ -263,9 +342,25 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
     return null;
   };
 
+  const mobileCards = useMemo<DashboardCardId[]>(() => {
+    if (activeLayout.mobile && activeLayout.mobile.length > 0) {
+      return activeLayout.mobile;
+    }
+    const enabled = new Set<DashboardCardId>([
+      ...activeLayout.primary,
+      ...activeLayout.secondary,
+    ]);
+    return DEFAULT_MOBILE_ORDER.filter((id) => enabled.has(id));
+  }, [activeLayout]);
+
   const handleDragStart = (event: DragStartEvent) => {
     setActiveCardId(event.active.id as DashboardCardId);
     setDragLayout(resolvedLayout);
+  };
+
+  const handleDragCancel = () => {
+    setActiveCardId(null);
+    setDragLayout(null);
   };
 
   const handleDragOver = (event: DragOverEvent) => {
@@ -273,29 +368,43 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
     const { active, over } = event;
     if (!over) return;
 
-    const current = dragLayout ?? resolvedLayout;
     const activeId = active.id as DashboardCardId;
     const overId = String(over.id);
+    if (activeId === overId) return;
 
-    const activeCol = findColumnOfCard(current, activeId);
-    const overCol = findColumnOfCard(current, overId);
+    setDragLayout((prev) => {
+      const current = prev ?? resolvedLayout;
+      const activeCol = findColumnOfCard(current, activeId);
+      const overCol = findColumnOfCard(current, overId);
 
-    if (!activeCol || !overCol || activeCol === overCol) return;
+      if (!activeCol || !overCol || activeCol === overCol) return prev;
 
-    const sourceList = [...current[activeCol]];
-    const destList = [...current[overCol]];
-    const activeIdx = sourceList.indexOf(activeId);
-    if (activeIdx === -1) return;
+      const sourceList = [...current[activeCol]];
+      const destList = [...current[overCol]];
+      const activeIdx = sourceList.indexOf(activeId);
+      if (activeIdx === -1) return prev;
 
-    sourceList.splice(activeIdx, 1);
-    const overIdx = destList.indexOf(overId as DashboardCardId);
-    const insertIdx = overIdx >= 0 ? overIdx : destList.length;
-    destList.splice(insertIdx, 0, activeId);
+      sourceList.splice(activeIdx, 1);
 
-    setDragLayout({
-      ...current,
-      [activeCol]: sourceList,
-      [overCol]: destList,
+      const overIdx = destList.indexOf(overId as DashboardCardId);
+      let insertIdx: number;
+      if (overIdx === -1) {
+        insertIdx = destList.length;
+      } else {
+        const activeTop =
+          active.rect.current.translated?.top ?? active.rect.current.initial?.top ?? 0;
+        const isBelowOverItem =
+          Boolean(over.rect) && activeTop > over.rect.top + over.rect.height / 2;
+        insertIdx = isBelowOverItem ? overIdx + 1 : overIdx;
+      }
+
+      destList.splice(insertIdx, 0, activeId);
+
+      return {
+        ...current,
+        [activeCol]: sourceList,
+        [overCol]: destList,
+      };
     });
   };
 
@@ -314,14 +423,16 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
     const overId = String(over.id);
 
     if (!isDesktop) {
-      const flat = buildMobileFlatCards(base);
-      const oldIdx = flat.indexOf(activeId);
-      const newIdx = flat.indexOf(overId as DashboardCardId);
+      const currentMobile =
+        base.mobile && base.mobile.length > 0 ? base.mobile : mobileCards;
+      const oldIdx = currentMobile.indexOf(activeId);
+      const newIdx = currentMobile.indexOf(overId as DashboardCardId);
       if (oldIdx !== -1 && newIdx !== -1 && oldIdx !== newIdx) {
-        const reordered = arrayMove(flat, oldIdx, newIdx);
-        const nextPrimary = reordered.filter((id) => base.primary.includes(id));
-        const nextSecondary = reordered.filter((id) => base.secondary.includes(id));
-        void updateLayout({ primary: nextPrimary, secondary: nextSecondary });
+        const reordered = arrayMove(currentMobile, oldIdx, newIdx);
+        void updateLayout({
+          ...base,
+          mobile: reordered,
+        });
       }
       return;
     }
@@ -363,6 +474,16 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
     void updateLayout({
       ...resolvedLayout,
       [col]: list,
+    });
+  };
+
+  const handleMoveMobileCardButton = (idx: number, delta: -1 | 1) => {
+    const target = idx + delta;
+    if (target < 0 || target >= mobileCards.length) return;
+    const reordered = arrayMove(mobileCards, idx, target);
+    void updateLayout({
+      ...resolvedLayout,
+      mobile: reordered,
     });
   };
 
@@ -589,8 +710,6 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
     }
   };
 
-  const mobileFlatCards = buildMobileFlatCards(activeLayout);
-
   const renderSortableItem = (
     cardId: DashboardCardId,
     idx: number,
@@ -612,22 +731,14 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
         if (col) {
           handleMoveCardButton(col, idx, -1);
         } else {
-          const next = arrayMove(mobileFlatCards, idx, idx - 1);
-          void updateLayout({
-            primary: next.filter((id) => activeLayout.primary.includes(id)),
-            secondary: next.filter((id) => activeLayout.secondary.includes(id)),
-          });
+          handleMoveMobileCardButton(idx, -1);
         }
       }}
       onMoveDown={() => {
         if (col) {
           handleMoveCardButton(col, idx, 1);
         } else {
-          const next = arrayMove(mobileFlatCards, idx, idx + 1);
-          void updateLayout({
-            primary: next.filter((id) => activeLayout.primary.includes(id)),
-            secondary: next.filter((id) => activeLayout.secondary.includes(id)),
-          });
+          handleMoveMobileCardButton(idx, 1);
         }
       }}
       onMoveColumn={col ? () => handleMoveCardColumn(col, cardId) : undefined}
@@ -906,25 +1017,30 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
         ) : (
           <DndContext
             sensors={sensors}
-            collisionDetection={closestCorners}
+            collisionDetection={collisionDetection}
+            measuring={measuringConfig}
             onDragStart={handleDragStart}
             onDragOver={handleDragOver}
             onDragEnd={handleDragEnd}
+            onDragCancel={handleDragCancel}
           >
             {!isDesktop ? (
               <SortableContext
-                items={mobileFlatCards}
-                strategy={rectSortingStrategy}
+                items={mobileCards}
+                strategy={verticalListSortingStrategy}
               >
                 <div className="space-y-4 sm:space-y-6">
-                  {renderCardSequence(mobileFlatCards)}
+                  {renderCardSequence(mobileCards)}
                 </div>
               </SortableContext>
             ) : (
               <div className="grid grid-cols-12 gap-6 items-start">
                 <DroppableColumn
                   id="primary"
-                  className="lg:col-span-7 xl:col-span-8 space-y-6 min-h-[120px]"
+                  label="Left column"
+                  isDraggingActive={activeCardId !== null}
+                  isEmpty={activeLayout.primary.length === 0}
+                  className="lg:col-span-7 xl:col-span-8 space-y-6 min-h-[140px]"
                 >
                   <SortableContext
                     items={activeLayout.primary}
@@ -936,7 +1052,10 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
 
                 <DroppableColumn
                   id="secondary"
-                  className="lg:col-span-5 xl:col-span-4 space-y-6 min-h-[120px]"
+                  label="Right column"
+                  isDraggingActive={activeCardId !== null}
+                  isEmpty={activeLayout.secondary.length === 0}
+                  className="lg:col-span-5 xl:col-span-4 space-y-6 min-h-[140px]"
                 >
                   <SortableContext
                     items={activeLayout.secondary}
@@ -948,12 +1067,23 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
               </div>
             )}
 
-            <DragOverlay>
+            <DragOverlay dropAnimation={dropAnimation}>
               {activeCardId ? (
-                <div className="surface-card p-4 opacity-95 shadow-2xl border-[var(--accent-border)]">
-                  <div className="text-xs font-mono font-medium text-[var(--accent)]">
-                    Moving: {CARD_LABELS[activeCardId]}
+                <div className="dnd-overlay-card px-4 py-3.5 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-[var(--accent-soft)] border border-[var(--accent-border)] text-[var(--accent)] flex items-center justify-center shrink-0">
+                      {renderCardIcon(activeCardId)}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-[var(--text-primary)] truncate">
+                        {CARD_LABELS[activeCardId]}
+                      </p>
+                      <p className="text-[11px] font-mono text-[var(--accent)]">
+                        Release to place
+                      </p>
+                    </div>
                   </div>
+                  <GripVerticalIcon className="w-4 h-4 text-[var(--accent)] shrink-0" />
                 </div>
               ) : null}
             </DragOverlay>
